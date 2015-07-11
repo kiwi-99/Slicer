@@ -6,6 +6,9 @@ set(${proj}_DEPENDENCIES "zlib")
 if(Slicer_BUILD_DICOM_SUPPORT)
   list(APPEND ${proj}_DEPENDENCIES DCMTK)
 endif()
+if(Slicer_USE_ITKPython)
+  list(APPEND ${proj}_DEPENDENCIES Swig python)
+endif()
 
 # Include dependent projects if any
 ExternalProject_Include_Dependencies(${proj} PROJECT_VAR proj DEPENDS_VAR ${proj}_DEPENDENCIES)
@@ -27,11 +30,11 @@ if(NOT DEFINED ITK_DIR AND NOT ${CMAKE_PROJECT_NAME}_USE_SYSTEM_${proj})
   endif()
 
   set(ITKv4_REPOSITORY ${git_protocol}://github.com/Slicer/ITK.git)
-  set(ITKv4_GIT_TAG 5f95aa6712c508a637a12faaea119d35e574208c) # slicer-v4.8rc02
+  set(ITKv4_GIT_TAG 3388d7bc48fa6465087fb92ac493ff177f250360) # slicer-v4.8
 
   set(EXTERNAL_PROJECT_OPTIONAL_CMAKE_CACHE_ARGS)
 
-  if(Slicer_USE_PYTHONQT)
+  if(Slicer_USE_PYTHONQT OR Slicer_USE_ITKPython)
     # XXX Ensure python executable used for ITKModuleHeaderTest
     #     is the same as Slicer.
     #     This will keep the sanity check implemented in SlicerConfig.cmake
@@ -39,6 +42,31 @@ if(NOT DEFINED ITK_DIR AND NOT ${CMAKE_PROJECT_NAME}_USE_SYSTEM_${proj})
     list(APPEND EXTERNAL_PROJECT_OPTIONAL_CMAKE_CACHE_ARGS
       -DPYTHON_EXECUTABLE:PATH=${PYTHON_EXECUTABLE}
       )
+  endif()
+  if(Slicer_USE_ITKPython)
+    list(APPEND EXTERNAL_PROJECT_OPTIONAL_CMAKE_CACHE_ARGS
+      -DPYTHON_LIBRARY:FILEPATH=${PYTHON_LIBRARY}
+      -DPYTHON_INCLUDE_DIR:PATH=${PYTHON_INCLUDE_DIR}
+      -DITK_WRAP_PYTHON:BOOL=ON
+      -DSWIG_EXECUTABLE:PATH=${SWIG_EXECUTABLE}
+      -DITK_USE_SYSTEM_SWIG:BOOL=ON
+      -DITK_LEGACY_SILENT:BOOL=ON
+      )
+    # Install WrapITK.pth for use in the build tree
+    set(python_check "from __future__ import print_function\ntry:\n    import distutils.sysconfig\n    print(distutils.sysconfig.get_python_lib(plat_specific=1))\nexcept:\n    pass")
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/det_spp.py ${python_check})
+    execute_process(COMMAND "${PYTHON_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/det_spp.py"
+      OUTPUT_VARIABLE py_spp
+      ERROR_VARIABLE py_spp
+      )
+    string(REGEX REPLACE "\n" "" py_spp_no_newline "${py_spp}")
+    string(REGEX REPLACE "\\\\" "/" py_spp_nobackslashes "${py_spp_no_newline}")
+    set(ITKv4_INSTALL_COMMAND ${CMAKE_COMMAND} -E copy
+          "${CMAKE_BINARY_DIR}/${proj}-build/Wrapping/Generators/Python/WrapITK.pth"
+          "${py_spp_nobackslashes}"
+          )
+  else()
+    set(ITKv4_INSTALL_COMMAND ${CMAKE_COMMAND} -E echo "Skip install step.")
   endif()
 
   ExternalProject_Add(${proj}
@@ -74,7 +102,7 @@ if(NOT DEFINED ITK_DIR AND NOT ${CMAKE_PROJECT_NAME}_USE_SYSTEM_${proj})
       -DZLIB_INCLUDE_DIR:PATH=${ZLIB_INCLUDE_DIR}
       -DZLIB_LIBRARY:FILEPATH=${ZLIB_LIBRARY}
       ${EXTERNAL_PROJECT_OPTIONAL_CMAKE_CACHE_ARGS}
-    INSTALL_COMMAND ""
+    INSTALL_COMMAND ${ITKv4_INSTALL_COMMAND}
     DEPENDS
       ${${proj}_DEPENDENCIES}
     )
